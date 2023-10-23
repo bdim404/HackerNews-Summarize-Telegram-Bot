@@ -26,8 +26,8 @@ h2t.ignore_images = True
 h2t.google_doc = True
 h2t.ignore_links = True
 
-async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(f'Hello, this is a bot for HackerNews to summarize.')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(f'Hello, This is a bot used with this [Hacker News Feed Telegram chnnel](https://t.me/hacker_news_feed), forword the message to the bot and return the summarize to you.')
 
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global article, comments
@@ -78,7 +78,7 @@ async def get_summary_text(update: Update):
 
 def main():
     app = ApplicationBuilder().token("YOUR-TOKEN").build()  # 请替换为您的Telegram Bot Token
-    app.add_handler(CommandHandler("hello", hello))
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     app.run_polling()
 
