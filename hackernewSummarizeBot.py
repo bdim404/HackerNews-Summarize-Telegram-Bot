@@ -39,8 +39,8 @@ h2t.ignore_images = True
 h2t.google_doc = True
 h2t.ignore_links = True
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(f'Hello, This is a bot used with @hacker_news_feed channel, forword the message to the bot and return the summarize to you.')
+# 最大字符长度，根据您的需求进行调整
+MAX_CHAR_LENGTH = 8000
 
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global article, comments
@@ -50,7 +50,7 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_id not in ALLOWED_TELEGRAM_USER_IDS:
         await update.message.reply_text("You are not allowed to use this bot.")
         return
-    
+
     text = update.message.text
     links_match = re.search(r"Link:\s+(https://\S+)", text)
     comments_match = re.search(r"Comments:\s+(https://\S+)", text)
@@ -75,6 +75,11 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     all_comments_text.append(text_content)
 
     article = all_article_text
+
+    # 截取 comments 内容以确保不超过最大字符长度
+    if len(all_comments_text[0]) > MAX_CHAR_LENGTH:
+        all_comments_text[0] = truncate_text(all_comments_text[0], MAX_CHAR_LENGTH)
+
     comments = all_comments_text
     # Respond to the user
     await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
@@ -88,6 +93,11 @@ async def get_summary_text(update: Update):
         {"role": "user", "content": "你好！这是Hacker News上的一篇文章，请你结合原文和评论对这个内容做一个600字以内的中文总结，简要介绍文章并进行总结，请确保语言流畅、衔接自然，便于快速浏览。"},
         {"role": "assistant", "content": article[0] + "\n" + comments[0]},
     ]
+    
+    # 截取内容以确保不超过最大字符长度
+    total_text = "".join([message["content"] for message in messages])
+    if len(total_text) > MAX_CHAR_LENGTH:
+        messages[2]["content"] = truncate_text(total_text, MAX_CHAR_LENGTH)
 
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-16k",
@@ -96,6 +106,13 @@ async def get_summary_text(update: Update):
     summary = response['choices'][0]['message']['content']
     await update.message.reply_text(summary)
 
+def truncate_text(text, max_length):
+    if len(text) <= max_length:
+        return text
+    else:
+        # 从文本的末尾开始删除字符，直到满足最大长度
+        return text[:-(len(text) - max_length)]
+    
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()  # 使用从 .env 文件中获取的 Telegram Bot Token
     app.add_handler(CommandHandler("start", start))
