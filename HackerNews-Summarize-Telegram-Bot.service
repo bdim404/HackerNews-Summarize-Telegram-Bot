@@ -1,0 +1,13 @@
+[Unit]
+Description=HackerNews-Summarize-Telegram-Bot
+Documentation=https://github.com/bdim404/HackerNews-Summarize-Telegram-Bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=python3 /usr/local/bin/HackerNews-Summarize-Telegram-Bot.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
