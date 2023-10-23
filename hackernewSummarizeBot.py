@@ -27,7 +27,7 @@ h2t.google_doc = True
 h2t.ignore_links = True
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(f'Hello, This is a bot used with this [Hacker News Feed Telegram chnnel](https://t.me/hacker_news_feed), forword the message to the bot and return the summarize to you.')
+    await update.message.reply_text(f'Hello, This is a bot used with @hacker_news_feed channel, forword the message to the bot and return the summarize to you.')
 
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global article, comments
