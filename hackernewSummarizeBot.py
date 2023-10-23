@@ -14,6 +14,19 @@ from telegram.ext import (
     ApplicationBuilder,
 )
 import re
+from dotenv import load_dotenv
+
+# 从 .env 文件加载配置
+load_dotenv()
+
+# 从 .env 文件获取配置信息
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_USER_IDS = os.getenv("ADMIN_USER_IDS").split(",") if os.getenv("ADMIN_USER_IDS") else []
+ALLOWED_TELEGRAM_USER_IDS = os.getenv("ALLOWED_TELEGRAM_USER_IDS").split(",") if os.getenv(
+    "ALLOWED_TELEGRAM_USER_IDS") else []
+ALLOWED_TELEGRAM_GROUP_IDS = os.getenv("ALLOWED_TELEGRAM_GROUP_IDS").split(",") if os.getenv(
+    "ALLOWED_TELEGRAM_GROUP_IDS") else []
 
 article = ""
 comments = ""
@@ -31,6 +44,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global article, comments
+    user_id = str(update.message.from_user.id)
+
+    # 鉴权：检查用户是否在白名单中
+    if user_id not in ALLOWED_TELEGRAM_USER_IDS:
+        await update.message.reply_text("You are not allowed to use this bot.")
+        return
+    
     text = update.message.text
     links_match = re.search(r"Link:\s+(https://\S+)", text)
     comments_match = re.search(r"Comments:\s+(https://\S+)", text)
@@ -61,7 +81,7 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await get_summary_text(update)
 
 async def get_summary_text(update: Update):
-    openai.api_key = 'YOUR-KEY'  # 请替换为您的OpenAI API密钥
+    openai.api_key = OPENAI_API_KEY  # 使用从 .env 文件中获取的 API 密钥
 
     messages = [
         {"role": "system", "content": "你是一个善于提取文章文本摘要的高手。"},
@@ -77,7 +97,7 @@ async def get_summary_text(update: Update):
     await update.message.reply_text(summary)
 
 def main():
-    app = ApplicationBuilder().token("YOUR-TOKEN").build()  # 请替换为您的Telegram Bot Token
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()  # 使用从 .env 文件中获取的 Telegram Bot Token
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     app.run_polling()
