@@ -83,19 +83,18 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.message.from_user.id)
     logging.info(f"Message received from user with ID: {user_id}")
     global article, comments
-    user_id = str(update.message.from_user.id)
-
-    # 鉴权：检查用户是否在白名单中
-    if user_id not in ALLOWED_TELEGRAM_USER_IDS:
-        await update.message.reply_text("You are not allowed to use this bot.")
-        logging.info(f"Error! Your ID: {user_id} are not allowed to use this bot.")
-        return
 
     text = update.message.text
     links_match = re.search(r"Link:\s+(https://\S+)", text)
     comments_match = re.search(r"Comments:\s+(https://\S+)", text)
 
-#验证链接是否来自Hacker News
+    # 如果消息来自用户（私聊消息），则检查用户是否在白名单中
+    if update.message.chat.type == 'private':
+        if user_id not in ALLOWED_TELEGRAM_USER_IDS:
+            await update.message.reply_text("您未被授权使用此bot，请联系机器人管理员。")
+            logging.info(f"Error! Your ID: {user_id} are not allowed to use this bot.")
+            return
+
     if links_match:
         links = links_match.group(1)
         if not is_valid_link(links):
