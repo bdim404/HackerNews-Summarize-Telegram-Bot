@@ -16,9 +16,18 @@ from telegram.ext import (
 )
 import re
 from dotenv import load_dotenv
+import logging
 
 # 从 .env 文件加载配置
 load_dotenv()
+
+# 设置日志记录
+logging.basicConfig(filename='bot.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+root_logger = logging.getLogger()
+root_logger.addHandler(console_handler)
 
 # 从 .env 文件获取配置信息
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -43,17 +52,24 @@ h2t.ignore_links = True
 # 最大字符长度，根据您的需求进行调整
 MAX_CHAR_LENGTH = 8000
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(f'Hello, This is a bot used with @hacker_news_feed channel, forword the message to the bot and return the summarize to you.')
+    user_id = str(update.message.from_user.id)
+    logging.info(f"Bot started by user with ID: {user_id}")
+    await update.message.reply_text(
+        f'Hello, This is a bot used with @hacker_news_feed channel, forword the message to the bot and return the summarize to you.')
 
 
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.message.from_user.id)
+    logging.info(f"Message received from user with ID: {user_id}")
     global article, comments
     user_id = str(update.message.from_user.id)
 
     # 鉴权：检查用户是否在白名单中
     if user_id not in ALLOWED_TELEGRAM_USER_IDS:
         await update.message.reply_text("You are not allowed to use this bot.")
+        logging.info(f"Error! Your ID: {user_id} are not allowed to use this bot.")
         return
 
     text = update.message.text
@@ -90,15 +106,20 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
     await get_summary_text(update)
 
+
 async def get_summary_text(update: Update):
+    user_id = str(update.message.from_user.id)
+    logging.info(f"Generating summary for user with ID: {user_id}")
+
     openai.api_key = OPENAI_API_KEY  # 使用从 .env 文件中获取的 API 密钥
 
     messages = [
         {"role": "system", "content": "你是一个善于提取文章文本摘要的高手。"},
-        {"role": "user", "content": "你好！这是Hacker News上的一篇文章，请你结合原文和评论对这个内容做一个600字以内的中文总结，简要介绍文章并进行总结，请确保语言流畅、衔接自然，便于快速浏览。"},
+        {"role": "user",
+         "content": "你好！这是Hacker News上的一篇文章，请你结合原文和评论对这个内容做一个600字以内的中文总结，简要介绍文章并进行总结，请确保语言流畅、衔接自然，避免套话、空话便于快速浏览。内容如下："},
         {"role": "assistant", "content": article[0] + "\n" + comments[0]},
     ]
-    
+
     # 截取内容以确保不超过最大字符长度
     total_text = "".join([message["content"] for message in messages])
     if len(total_text) > MAX_CHAR_LENGTH:
@@ -111,18 +132,21 @@ async def get_summary_text(update: Update):
     summary = response['choices'][0]['message']['content']
     await update.message.reply_text(summary)
 
+
 def truncate_text(text, max_length):
     if len(text) <= max_length:
         return text
     else:
         # 从文本的末尾开始删除字符，直到满足最大长度
         return text[:-(len(text) - max_length)]
-    
+
+
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()  # 使用从 .env 文件中获取的 Telegram Bot Token
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     app.run_polling()
+    logging.info("Bot application started")
 
 if __name__ == "__main__":
     main()
