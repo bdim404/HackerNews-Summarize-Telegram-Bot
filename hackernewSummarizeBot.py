@@ -18,17 +18,14 @@ import re
 from dotenv import load_dotenv
 import logging
 import urllib.parse
+import sys
 
 # 从 .env 文件加载配置
 load_dotenv()
 
 # 设置日志记录
-logging.basicConfig(filename='bot.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-root_logger = logging.getLogger()
-root_logger.addHandler(console_handler)
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 
 # 从 .env 文件获取配置信息
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
