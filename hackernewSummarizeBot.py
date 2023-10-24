@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 import logging
 import urllib.parse
 import sys
+from html2text import HTML2Text
+from bs4 import BeautifulSoup
 
 # 从 .env 文件加载配置
 load_dotenv()
@@ -41,7 +43,26 @@ comments = ""
 
 ARTICLE, COMMENTS = range(2)
 
-h2t = html2text.HTML2Text()
+#处理HTML标签
+def element_style(attrs, style_def, parent_style):
+    tag = style_def['tag']
+
+    # 检查是否存在'class'属性，如果不存在，返回空字符串
+    class_attr = attrs.get('class', '')
+
+    # 在处理'class'属性时不会抛出AssertionError
+    if class_attr is not None:
+        class_attr = ' '.join(class_attr)
+    else:
+        class_attr = ''
+
+    attrs = {key: value for key, value in attrs.items() if key != 'class'}
+    attrs['class'] = class_attr
+
+    return attrs
+
+h2t = HTML2Text()
+h2t.handle_class = element_style
 h2t.ignore_tables = True
 h2t.ignore_images = True
 h2t.google_doc = True
@@ -99,16 +120,32 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     all_article_text = []
     response = requests.get(links)
     html = response.text
-    content = h2t.handle(html)
-    text_content = html2text.html2text(content)
-    all_article_text.append(text_content)
+
+    try:
+        # 使用BeautifulSoup解析HTML以确保正确性
+        soup = BeautifulSoup(html, "html.parser")
+        content = str(soup)
+        text_content = html2text.html2text(content)
+        all_article_text.append(text_content)
+    except AssertionError:
+        # 发送错误消息给用户
+        await update.message.reply_text("HTML解析错误，目标网站HTML不合法。")
+        return
 
     all_comments_text = []
     response = requests.get(comments)
     html = response.text
-    content = h2t.handle(html)
-    text_content = html2text.html2text(content)
-    all_comments_text.append(text_content)
+
+    try:
+        # 使用BeautifulSoup解析HTML以确保正确性
+        soup = BeautifulSoup(html, "html.parser")
+        content = str(soup)
+        text_content = html2text.html2text(content)
+        all_comments_text.append(text_content)
+    except AssertionError:
+        # 发送错误消息给用户
+        await update.message.reply_text("HTML解析错误，目标网站HTML不合法。")
+        return
 
     article = all_article_text
 
@@ -160,6 +197,7 @@ def truncate_text(text, max_length):
 def is_valid_link(link):
     parsed_url = urllib.parse.urlparse(link)
     return parsed_url.netloc == "readhacker.news"
+
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()  # 使用从 .env 文件中获取的 Telegram Bot Token
