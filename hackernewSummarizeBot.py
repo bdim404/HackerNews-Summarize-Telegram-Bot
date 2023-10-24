@@ -17,6 +17,7 @@ from telegram.ext import (
 import re
 from dotenv import load_dotenv
 import logging
+import urllib.parse
 
 # 从 .env 文件加载配置
 load_dotenv()
@@ -75,6 +76,23 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     links_match = re.search(r"Link:\s+(https://\S+)", text)
     comments_match = re.search(r"Comments:\s+(https://\S+)", text)
+
+#验证链接是否来自Hacker News
+    if links_match:
+        links = links_match.group(1)
+        if not is_valid_link(links):
+            await update.message.reply_text("警告！你发送了包含错误的链接的消息，请转发正确的消息。")
+            user_id = str(update.message.from_user.id)
+            logging.info(f"User ID: {user_id} send a wrong links")
+            return
+
+    if comments_match:
+        comments = comments_match.group(1)
+        if not is_valid_link(comments):
+            await update.message.reply_text("警告！你发送了包含错误的链接的消息，请转发正确的消息。")
+            user_id = str(update.message.from_user.id)
+            logging.info(f"User ID: {user_id} send a wrong links")
+            return
 
     if links_match:
         links = links_match.group(1)
@@ -140,6 +158,11 @@ def truncate_text(text, max_length):
         # 从文本的末尾开始删除字符，直到满足最大长度
         return text[:-(len(text) - max_length)]
 
+
+#验证域名是否来自redhacker.news
+def is_valid_link(link):
+    parsed_url = urllib.parse.urlparse(link)
+    return parsed_url.netloc == "readhacker.news"
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()  # 使用从 .env 文件中获取的 Telegram Bot Token
