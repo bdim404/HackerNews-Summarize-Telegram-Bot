@@ -43,6 +43,10 @@ h2t.ignore_links = True
 # 最大字符长度，根据您的需求进行调整
 MAX_CHAR_LENGTH = 8000
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(f'Hello, This is a bot used with @hacker_news_feed channel, forword the message to the bot and return the summarize to you.')
+
+
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global article, comments
     user_id = str(update.message.from_user.id)
