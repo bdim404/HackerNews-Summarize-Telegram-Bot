@@ -1,11 +1,12 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*
 
+import asyncio
 import os
 import openai
 import html2text
 import requests
-from telegram import Update
+from telegram import Update, Message, constants
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -154,11 +155,10 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     comments = all_comments_text
     # Respond to the user
-    await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
-    await get_summary_text(update)
+    await get_and_reply_summary_text(update)
 
 
-async def get_summary_text(update: Update):
+async def get_and_reply_summary_text(update: Update):
     user_id = str(update.message.from_user.id)
     logging.info(f"Generating summary for user with ID: {user_id}")
 
@@ -176,12 +176,94 @@ async def get_summary_text(update: Update):
     if len(total_text) > MAX_CHAR_LENGTH:
         messages[2]["content"] = truncate_text(total_text, MAX_CHAR_LENGTH)
 
-    response = openai.ChatCompletion.create(
+    reply_message = await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
+    await update.message.reply_chat_action(constants.ChatAction.TYPING)
+    response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-16k",
+        stream=True,
         messages=messages
     )
-    summary = response['choices'][0]['message']['content']
-    await update.message.reply_text(summary)
+    summary = ''
+    '''
+    Each stream reponse JSON looks like this:
+    {
+        "id": "chatcmpl-123",
+        "object": "chat.completion.chunk",
+        "created": 1694268190,
+        "model": "gpt-3.5-turbo-0613",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "content": ""
+                },
+                "finish_reason": null
+            }
+        ]
+    }
+    '''
+    backoff = 0
+    prev = ''
+    async for item in response:
+        # only consider response that has the 'choice' attribute,
+        # which contains the content we want
+        if 'choices' not in item or len(item.choices) == 0:
+            continue
+        # we take the 'delta' object out to concentrate on it
+        delta = item.choices[0].delta
+        finished = item.choices[0]['finish_reason'] == 'stop'
+        # as long as there's content attribute, means it's not finished yet.
+        # although OpenAI API also hints a 'stop' in 'finish_reason' field.
+        if 'content' in delta and delta.content is not None:
+            # we and append the delta content to our 'summary'
+            summary += delta.content
+        # then we try to update our reply with a not-finished-yet 'summary'
+        cutoff = get_stream_cutoff_values(update, summary)
+        cutoff += backoff
+        if abs(len(summary) - len(prev)) > cutoff or finished:
+            prev = summary
+            try: 
+                await reply_message.edit_text(summary)
+            except RetryAfter as e:
+                backoff += 5
+                await asyncio.sleep(e.retry_after)
+                continue
+
+            except TimedOut:
+                backoff += 5
+                await asyncio.sleep(0.5)
+                continue
+
+            except Exception:
+                backoff += 5
+                continue
+
+            await asyncio.sleep(0.01)
+
+
+def get_stream_cutoff_values(update: Update, content: str) -> int:
+    """
+    Gets the stream cutoff values for the message length
+    """
+    if is_group_chat(update):
+        # group chats have stricter flood limits
+        return 180 if len(content) > 1000 else 120 if len(content) > 200 \
+            else 90 if len(content) > 50 else 50
+    return 90 if len(content) > 1000 else 45 if len(content) > 200 \
+        else 25 if len(content) > 50 else 15
+
+
+def is_group_chat(update: Update) -> bool:
+    """
+    Checks if the message was sent from a group chat
+    """
+    if not update.effective_chat:
+        return False
+    return update.effective_chat.type in [
+        constants.ChatType.GROUP,
+        constants.ChatType.SUPERGROUP
+    ]
 
 
 def truncate_text(text, max_length):
