@@ -155,7 +155,7 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     comments = all_comments_text
     # Respond to the user
-    await get_and_reply_summary_text(update)
+    asyncio.create_task(get_and_reply_summary_text(update))
 
 
 async def get_and_reply_summary_text(update: Update):
@@ -181,6 +181,7 @@ async def get_and_reply_summary_text(update: Update):
     response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-16k",
         stream=True,
+        temperature=1.0,
         messages=messages
     )
     summary = ''
