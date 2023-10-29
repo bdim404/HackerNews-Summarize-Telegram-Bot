@@ -72,8 +72,6 @@ h2t.ignore_links = True
 # 最大字符长度，根据您的需求进行调整
 MAX_CHAR_LENGTH = 8000
 
-# 创建一个 asyncio.Lock 用于锁定生成摘要的过程
-summary_lock = asyncio.Lock()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.message.from_user.id)
@@ -157,7 +155,7 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     comments = all_comments_text
     # Respond to the user
-    asyncio.create_task(get_and_reply_summary_text(update))
+    await get_and_reply_summary_text(update)
 
 
 async def get_and_reply_summary_text(update: Update):
@@ -180,15 +178,11 @@ async def get_and_reply_summary_text(update: Update):
 
     reply_message = await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
     await update.message.reply_chat_action(constants.ChatAction.TYPING)
-    async with summary_lock:
-        # 使用锁以确保只有一个任务生成摘要
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo-16k",
-            stream=True,
-            temperature=1.0,
-            functions_max_consecutive_calls=10,
-            messages=messages
-        )
+    response = await openai.ChatCompletion.acreate(
+        model="gpt-3.5-turbo-16k",
+        stream=True,
+        messages=messages
+    )
     summary = ''
     '''
     Each stream reponse JSON looks like this:
