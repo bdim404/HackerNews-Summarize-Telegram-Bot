@@ -6,7 +6,7 @@ import os
 import openai
 import html2text
 import requests
-from telegram import Update, Message, constants
+from telegram import Bot,Update, Message, constants
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -86,6 +86,9 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global article, comments
 
     text = update.message.text
+    if re.search(r"Link:\s+(https://\S+)", text) is None:
+        logging.info(f"Message doesn’t contain Hacker News link")
+        return
     links_match = re.search(r"Link:\s+(https://\S+)", text)
     comments_match = re.search(r"Comments:\s+(https://\S+)", text)
 
