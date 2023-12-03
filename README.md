@@ -11,7 +11,7 @@ This is a bot used with this [Hacker News Feed Telegram chnnel](https://t.me/hac
 
 ## Quickstart
 
-1. Download and open this repository with `git clong https://github.com/bdim404/HackerNews-Summarize-Telegram-Bot.git`
+1. Download and open this repository with `git clone https://github.com/bdim404/HackerNews-Summarize-Telegram-Bot.git`
 
 
 2. Customize the configuration by copying `.env.example` and renaming it to `.env`, then editing the required parameters as desired:
