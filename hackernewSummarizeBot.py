@@ -22,6 +22,8 @@ import urllib.parse
 import sys
 from html2text import HTML2Text
 from bs4 import BeautifulSoup
+import retrying
+from openai.error import ServiceUnavailableError
 
 # 从 .env 文件加载配置
 load_dotenv()
@@ -33,12 +35,8 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s -
 # 从 .env 文件获取配置信息
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ADMIN_USER_IDS = os.getenv("ADMIN_USER_IDS").split(",") if os.getenv("ADMIN_USER_IDS") else []
 ALLOWED_TELEGRAM_USER_IDS = os.getenv("ALLOWED_TELEGRAM_USER_IDS").split(",") if os.getenv(
     "ALLOWED_TELEGRAM_USER_IDS") else []
-ALLOWED_TELEGRAM_GROUP_IDS = os.getenv("ALLOWED_TELEGRAM_GROUP_IDS").split(",") if os.getenv(
-    "ALLOWED_TELEGRAM_GROUP_IDS") else []
-
 article = ""
 comments = ""
 
@@ -73,6 +71,7 @@ h2t.ignore_links = True
 MAX_CHAR_LENGTH = 8000
 
 
+# bot简介以及使用说明
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.message.from_user.id)
     logging.info(f"Bot started by user with ID: {user_id}")
@@ -80,17 +79,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f'Hello, This is a bot used with @hacker_news_feed channel, forword the message to the bot and return the summarize to you.')
 
 
+
+# 处理消息是否包含目标链接并进行鉴权
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.message.from_user.id)
     logging.info(f"Message received from user with ID: {user_id}")
-    global article, comments
-
     text = update.message.text
-    if re.search(r"Link:\s+(https://\S+)", text) is None:
-        logging.info(f"Message doesn’t contain Hacker News link")
-        return
-    links_match = re.search(r"Link:\s+(https://\S+)", text)
-    comments_match = re.search(r"Comments:\s+(https://\S+)", text)
 
     # 如果消息来自用户（私聊消息），则检查用户是否在白名单中
     if update.message.chat.type == 'private':
@@ -99,55 +93,39 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logging.info(f"Error! Your ID: {user_id} are not allowed to use this bot.")
             return
 
-    if links_match:
-        links = links_match.group(1)
-        if not is_valid_link(links):
-            await update.message.reply_text("警告！你发送了包含错误的链接的消息，请转发正确的消息。")
-            user_id = str(update.message.from_user.id)
-            logging.info(f"User ID: {user_id} send a wrong links")
+    # 如果消息来自群聊，则检查是否包含目标链接
+    if update.message.chat.type == 'group':
+        if re.search(r"Link:\s+(https://readhacker.news\S+)", text) is None:
+            logging.info(f"Message doesn’t contain Hacker News link")
             return
 
-    if comments_match:
-        comments = comments_match.group(1)
-        if not is_valid_link(comments):
-            await update.message.reply_text("警告！你发送了包含错误的链接的消息，请转发正确的消息。")
-            user_id = str(update.message.from_user.id)
-            logging.info(f"User ID: {user_id} send a wrong links")
-            return
+    # 提取链接
+    links_match = re.search(r"Link:\s+(https://readhacker.news\S+)", text)
+    comments_match = re.search(r"Comments:\s+(https://readhacker.news\S+)", text)
 
-    if links_match:
-        links = links_match.group(1)
-    if comments_match:
-        comments = comments_match.group(1)
+    links = links_match.group(1) if links_match else None
+    comments = comments_match.group(1) if comments_match else None
 
-    all_article_text = []
-    response = requests.get(links)
-    html = response.text
+    # 将链接传递给处理链接函数
+    if links and comments:
+        asyncio.create_task(handle_links(update, links, comments))
+    else:
+        logging.info(f"Link or comments not found in the message")
 
-    try:
-        # 使用BeautifulSoup解析HTML以确保正确性
-        soup = BeautifulSoup(html, "html.parser")
-        content = str(soup)
-        text_content = html2text.html2text(content)
-        all_article_text.append(text_content)
-    except AssertionError:
-        # 发送错误消息给用户
-        await update.message.reply_text("HTML解析错误，目标网站HTML不合法。")
-        return
 
-    all_comments_text = []
-    response = requests.get(comments)
-    html = response.text
 
-    try:
-        # 使用BeautifulSoup解析HTML以确保正确性
-        soup = BeautifulSoup(html, "html.parser")
-        content = str(soup)
-        text_content = html2text.html2text(content)
-        all_comments_text.append(text_content)
-    except AssertionError:
-        # 发送错误消息给用户
-        await update.message.reply_text("HTML解析错误，目标网站HTML不合法。")
+
+# 处理链接网页内容
+async def handle_links(update: Update, links: str, comments: str) -> None:
+    user_id = str(update.message.from_user.id)
+    logging.info(f"Processing links for user with ID: {user_id}")
+
+    #通过fetch_and_parse_content函数获取文章和评论的文本内容
+    all_article_text = await fetch_and_parse_content(links)
+    all_comments_text = await fetch_and_parse_content(comments)
+
+    if not all_article_text or not all_comments_text:
+        await update.message.reply_text("无法获取文章或评论的内容，请检查链接是否有效。")
         return
 
     article = all_article_text
@@ -160,92 +138,136 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Respond to the user
     asyncio.create_task(get_and_reply_summary_text(update))
 
+# 将网页内容提取为文本
+async def fetch_and_parse_content(url: str):
+    response = requests.get(url)
+    html = response.text
+    all_text = []
 
+    try:
+        # 使用BeautifulSoup解析HTML以确保正确性
+        soup = BeautifulSoup(html, "html.parser")
+        content = str(soup)
+        text_content = h2t.handle(content)
+        all_text.append(text_content)
+    except AssertionError:
+        # 记录错误消息
+        logging.error("HTML解析错误，目标网站HTML不合法。")
+        return []
+
+    return all_text
+
+
+
+
+# 发送消息到 OpenAI API 以生成摘要
+@retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
+async def send_messages_to_openai(messages):
+    openai.api_key = OPENAI_API_KEY  # 使用从 .env 文件中获取的 API 密钥
+    logging.info(f"Sending messages to OpenAI API")
+    # 添加重试逻辑，最多重试5次
+    for attempt in range(5):
+        try:
+            response = await openai.ChatCompletion.acreate(
+                model="gpt-3.5-turbo-16k",
+                stream=True,
+                temperature=1.0,
+                messages=messages
+            )
+            return response
+        except ServiceUnavailableError as e:
+            logging.warning(f"ServiceUnavailableError: {e}")
+            logging.warning(f"Retrying after {2**attempt} seconds...")
+            await asyncio.sleep(2**attempt)
+
+    # 如果重试5次后仍然失败，抛出异常或返回默认值
+    logging.error("Failed after 5 retries.")
+    return None
+
+
+
+# 处理从 OpenAI API 返回的信息并向用户回复（优化版）
+async def process_openai_response(update, response):
+    user_id = str(update.message.from_user.id)
+    logging.info(f"Processing OpenAI response for user with ID: {user_id}")
+
+    # 初始回复消息
+    reply_message = await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
+    await update.message.reply_chat_action(constants.ChatAction.TYPING)
+
+    # 初始化 summary 和 backoff
+    summary = ''
+    backoff = 0
+    prev = ''
+
+    # 初始化消息列表，用于批量编辑
+    messages_to_edit = []
+
+    async for item in response:
+        if 'choices' not in item or len(item.choices) == 0:
+            continue
+
+        delta = item.choices[0].delta
+        finished = item.choices[0]['finish_reason'] == 'stop'
+
+        if 'content' in delta and delta.content is not None:
+            summary += delta.content
+
+        cutoff = get_stream_cutoff_values(update, summary)
+        cutoff += backoff
+
+        # 如果满足条件或处理结束，准备批量编辑消息
+        if abs(len(summary) - len(prev)) > cutoff or finished:
+            prev = summary
+            messages_to_edit.append(summary)
+            backoff += 5
+
+            # 处理一次性批量编辑消息
+            await batch_edit_messages(reply_message, messages_to_edit)
+            messages_to_edit = []  # 清空消息列表
+
+            # 异步等待一小段时间，以便 Telegram 服务器能够处理编辑请求
+            await asyncio.sleep(0.01)
+
+# 批量编辑消息
+async def batch_edit_messages(reply_message, messages):
+    try:
+        # 一次性编辑多个消息
+        await reply_message.edit_text("\n".join(messages))
+    except (RetryAfter, TimedOut):
+        await asyncio.sleep(0.5)
+    except Exception:
+        pass
+
+
+
+
+# 将文章和评论传递给 OpenAI API 以生成摘要
 async def get_and_reply_summary_text(update: Update):
     user_id = str(update.message.from_user.id)
     logging.info(f"Generating summary for user with ID: {user_id}")
-
-    openai.api_key = OPENAI_API_KEY  # 使用从 .env 文件中获取的 API 密钥
 
     messages = [
         {"role": "system", "content": "你是一个善于提取文章文本摘要的高手。"},
         {"role": "user",
          "content": "你好！这是Hacker News上的一篇文章，请你结合原文和评论对这个内容做一个600字以内的中文总结，简要介绍文章并进行总结，请确保语言流畅、衔接自然，避免套话、空话便于快速浏览。内容如下："},
-        {"role": "assistant", "content": article[0] + "\n" + comments[0]},
     ]
 
-    # 截取内容以确保不超过最大字符长度
+    if article:
+        messages.append({"role": "assistant", "content": article[0]})
+    if comments:
+        messages.append({"role": "assistant", "content": comments[0]})
+
     total_text = "".join([message["content"] for message in messages])
+
     if len(total_text) > MAX_CHAR_LENGTH:
-        messages[2]["content"] = truncate_text(total_text, MAX_CHAR_LENGTH)
+        messages[-1]["content"] = truncate_text(total_text, MAX_CHAR_LENGTH)
 
-    reply_message = await update.message.reply_text("正在处理，请稍等，大约需要一分钟。")
-    await update.message.reply_chat_action(constants.ChatAction.TYPING)
-    response = await openai.ChatCompletion.acreate(
-        model="gpt-3.5-turbo-16k",
-        stream=True,
-        temperature=1.0,
-        messages=messages
-    )
-    summary = ''
-    '''
-    Each stream reponse JSON looks like this:
-    {
-        "id": "chatcmpl-123",
-        "object": "chat.completion.chunk",
-        "created": 1694268190,
-        "model": "gpt-3.5-turbo-0613",
-        "choices": [
-            {
-                "index": 0,
-                "delta": {
-                    "role": "assistant",
-                    "content": ""
-                },
-                "finish_reason": null
-            }
-        ]
-    }
-    '''
-    backoff = 0
-    prev = ''
-    async for item in response:
-        # only consider response that has the 'choice' attribute,
-        # which contains the content we want
-        if 'choices' not in item or len(item.choices) == 0:
-            continue
-        # we take the 'delta' object out to concentrate on it
-        delta = item.choices[0].delta
-        finished = item.choices[0]['finish_reason'] == 'stop'
-        # as long as there's content attribute, means it's not finished yet.
-        # although OpenAI API also hints a 'stop' in 'finish_reason' field.
-        if 'content' in delta and delta.content is not None:
-            # we and append the delta content to our 'summary'
-            summary += delta.content
-        # then we try to update our reply with a not-finished-yet 'summary'
-        cutoff = get_stream_cutoff_values(update, summary)
-        cutoff += backoff
-        if abs(len(summary) - len(prev)) > cutoff or finished:
-            prev = summary
-            try: 
-                await reply_message.edit_text(summary)
-            except RetryAfter as e:
-                backoff += 5
-                await asyncio.sleep(e.retry_after)
-                continue
-
-            except TimedOut:
-                backoff += 5
-                await asyncio.sleep(0.5)
-                continue
-
-            except Exception:
-                backoff += 5
-                continue
-
-            await asyncio.sleep(0.01)
+    response = await send_messages_to_openai(messages)
+    await process_openai_response(update, response)
 
 
+# 获取流截止值
 def get_stream_cutoff_values(update: Update, content: str) -> int:
     """
     Gets the stream cutoff values for the message length
@@ -257,7 +279,7 @@ def get_stream_cutoff_values(update: Update, content: str) -> int:
     return 90 if len(content) > 1000 else 45 if len(content) > 200 \
         else 25 if len(content) > 50 else 15
 
-
+# 检查消息是否来自群聊
 def is_group_chat(update: Update) -> bool:
     """
     Checks if the message was sent from a group chat
@@ -269,19 +291,13 @@ def is_group_chat(update: Update) -> bool:
         constants.ChatType.SUPERGROUP
     ]
 
-
+# 截取文本以确保不超过最大字符长度
 def truncate_text(text, max_length):
     if len(text) <= max_length:
         return text
     else:
         # 从文本的末尾开始删除字符，直到满足最大长度
         return text[:-(len(text) - max_length)]
-
-
-#验证域名是否来自redhacker.news
-def is_valid_link(link):
-    parsed_url = urllib.parse.urlparse(link)
-    return parsed_url.netloc == "readhacker.news"
 
 
 def main():

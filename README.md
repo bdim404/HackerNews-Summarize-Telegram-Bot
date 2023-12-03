@@ -8,3 +8,27 @@
 ## Introduce
 
 This is a bot used with this [Hacker News Feed Telegram chnnel](https://t.me/hacker_news_feed), forword the message to the bot and return the summarize to you.
+
+## Quickstart
+
+1. Download and open this repository with `git clong https://github.com/bdim404/HackerNews-Summarize-Telegram-Bot.git`
+
+
+2. Customize the configuration by copying `.env.example` and renaming it to `.env`, then editing the required parameters as desired:
+
+| Parameter                   | Description                                                                                                                                                                                                                   |
+|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `OPENAI_API_KEY`            | Your OpenAI API key, you can get it from [here](https://platform.openai.com/account/api-keys)                                                                                                                                 |
+| `TELEGRAM_BOT_TOKEN`        | Your Telegram bot's token, obtained using [BotFather](http://t.me/botfather) (see [tutorial](https://core.telegram.org/bots/tutorial#obtain-your-bot-token))                                                                  |
+| `ADMIN_USER_IDS`            | Telegram user IDs of admins. These users have access to special admin commands, information and no budget restrictions. Admin IDs don't have to be added to `ALLOWED_TELEGRAM_USER_IDS`. **Note**: by default, no admin (`-`) |
+| `ALLOWED_TELEGRAM_USER_IDS` | A comma-separated list of Telegram user IDs that are allowed to interact with the bot (use [getidsbot](https://t.me/getidsbot) to find your user ID). **Note**: by default, *everyone* is allowed (`*`)                       |
+
+3. Install the dependencies using `requirements.txt` file:
+```shell
+pip install -r requirements.txt
+```
+
+4. Use the following command to start the bot:
+```
+python hackernewSummarizeBot.py
+```
