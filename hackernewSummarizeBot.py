@@ -105,6 +105,8 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     links = links_match.group(1) if links_match else None
     comments = comments_match.group(1) if comments_match else None
+    logging.info(f"Link: {links}")
+    logging.info(f"Comments: {comments}")
 
     # 将链接传递给处理链接函数
     if links and comments:
@@ -119,6 +121,9 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_links(update: Update, links: str, comments: str) -> None:
     user_id = str(update.message.from_user.id)
     logging.info(f"Processing links for user with ID: {user_id}")
+
+    logging.info(f"Fetching and parsing content for links: {links}")
+    logging.info(f"Fetching and parsing content for comments: {comments}")
 
     #通过fetch_and_parse_content函数获取文章和评论的文本内容
     all_article_text = await fetch_and_parse_content(links)
@@ -136,7 +141,7 @@ async def handle_links(update: Update, links: str, comments: str) -> None:
 
     comments = all_comments_text
     # Respond to the user
-    asyncio.create_task(get_and_reply_summary_text(update))
+    asyncio.create_task(get_and_reply_summary_text(update, article, comments))
 
 # 将网页内容提取为文本
 async def fetch_and_parse_content(url: str):
@@ -243,7 +248,7 @@ async def batch_edit_messages(reply_message, messages):
 
 
 # 将文章和评论传递给 OpenAI API 以生成摘要
-async def get_and_reply_summary_text(update: Update):
+async def get_and_reply_summary_text(update: Update, article, comments):
     user_id = str(update.message.from_user.id)
     logging.info(f"Generating summary for user with ID: {user_id}")
 
