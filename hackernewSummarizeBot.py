@@ -68,7 +68,7 @@ h2t.google_doc = True
 h2t.ignore_links = True
 
 # 最大字符长度，根据您的需求进行调整
-MAX_CHAR_LENGTH = 8000
+MAX_CHAR_LENGTH = 16000
 
 
 # bot简介以及使用说明
@@ -133,15 +133,15 @@ async def handle_links(update: Update, links: str, comments: str) -> None:
         await update.message.reply_text("无法获取文章或评论的内容，请检查链接是否有效。")
         return
 
-    article = all_article_text
-
     # 截取 comments 内容以确保不超过最大字符长度
-    if len(all_comments_text[0]) > MAX_CHAR_LENGTH:
-        all_comments_text[0] = truncate_text(all_comments_text[0], MAX_CHAR_LENGTH)
+    if len(all_comments_text[0]) + len(all_article_text[0]) > MAX_CHAR_LENGTH:
+        all_text = all_article_text + all_comments_text
+        all_text = truncate_text(all_text, MAX_CHAR_LENGTH)
 
-    comments = all_comments_text
+    text = all_text
+    print(len(all_text))
     # Respond to the user
-    asyncio.create_task(get_and_reply_summary_text(update, article, comments))
+    asyncio.create_task(get_and_reply_summary_text(update, text))
 
 # 将网页内容提取为文本
 async def fetch_and_parse_content(url: str):
@@ -248,7 +248,7 @@ async def batch_edit_messages(reply_message, messages):
 
 
 # 将文章和评论传递给 OpenAI API 以生成摘要
-async def get_and_reply_summary_text(update: Update, article, comments):
+async def get_and_reply_summary_text(update: Update, text: str):
     user_id = str(update.message.from_user.id)
     logging.info(f"Generating summary for user with ID: {user_id}")
 
@@ -258,15 +258,10 @@ async def get_and_reply_summary_text(update: Update, article, comments):
          "content": "你好！这是Hacker News上的一篇文章，请你结合原文和评论对这个内容做一个600字以内的中文总结，简要介绍文章并进行总结，请确保语言流畅、衔接自然，避免套话、空话便于快速浏览。内容如下："},
     ]
 
-    if article:
-        messages.append({"role": "assistant", "content": article[0]})
-    if comments:
-        messages.append({"role": "assistant", "content": comments[0]})
+    if text:
+        messages.append({"role": "assistant", "content": text})
 
     total_text = "".join([message["content"] for message in messages])
-
-    if len(total_text) > MAX_CHAR_LENGTH:
-        messages[-1]["content"] = truncate_text(total_text, MAX_CHAR_LENGTH)
 
     response = await send_messages_to_openai(messages)
     await process_openai_response(update, response)
@@ -298,11 +293,18 @@ def is_group_chat(update: Update) -> bool:
 
 # 截取文本以确保不超过最大字符长度
 def truncate_text(text, max_length):
+    if len(text) == 0:
+        return ""
+
+    # 获取数组中的第一个元素
+    text = text[0]
+
     if len(text) <= max_length:
         return text
     else:
         # 从文本的末尾开始删除字符，直到满足最大长度
-        return text[:-(len(text) - max_length)]
+        truncated_text = text[-max_length:]
+        return truncated_text
 
 
 def main():
