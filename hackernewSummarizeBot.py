@@ -24,6 +24,7 @@ from html2text import HTML2Text
 from bs4 import BeautifulSoup
 import retrying
 from openai.error import ServiceUnavailableError
+import sqlite3
 
 # 从 .env 文件加载配置
 load_dotenv()
@@ -70,6 +71,22 @@ h2t.ignore_links = True
 # 最大字符长度，根据您的需求进行调整
 MAX_CHAR_LENGTH = 16000
 
+
+# 数据库文件路径
+DATABASE_FILE = 'summaries.db'
+
+# 创建数据库连接
+conn = sqlite3.connect(DATABASE_FILE)
+cursor = conn.cursor()
+
+# 创建摘要表（如果不存在）
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS summaries (
+        link_id TEXT PRIMARY KEY,
+        summary_text TEXT
+    )
+''')
+conn.commit()
 
 # bot简介以及使用说明
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -122,6 +139,19 @@ async def handle_links(update: Update, links: str, comments: str) -> None:
     user_id = str(update.message.from_user.id)
     logging.info(f"Processing links for user with ID: {user_id}")
 
+    # 从链接中提取标识,链接以 https://readhacker.news/s/ 开头
+    link_id = links.split('/')[-1]
+
+    # 在数据库中查找摘要文本
+    stored_summary = fetch_summary_from_database(link_id)
+
+    if stored_summary:
+        # 如果在数据库中找到摘要文本，则直接返回
+        logging.info(f"Summary found in the database for link_id: {link_id}")
+        asyncio.create_task(update.message.reply_text(stored_summary))
+        return
+
+
     logging.info(f"Fetching and parsing content for links: {links}")
     logging.info(f"Fetching and parsing content for comments: {comments}")
 
@@ -139,9 +169,9 @@ async def handle_links(update: Update, links: str, comments: str) -> None:
         all_text = truncate_text(all_text, MAX_CHAR_LENGTH)
 
     text = all_text
-    print(len(all_text))
+    logging.info(f"Textlength: {len(text)}")
     # Respond to the user
-    asyncio.create_task(get_and_reply_summary_text(update, text))
+    asyncio.create_task(get_and_reply_summary_text(update, text, link_id))
 
 # 将网页内容提取为文本
 async def fetch_and_parse_content(url: str):
@@ -192,7 +222,7 @@ async def send_messages_to_openai(messages):
 
 
 # 处理从 OpenAI API 返回的信息并向用户回复（优化版）
-async def process_openai_response(update, response):
+async def process_openai_response(update, response, link_id):
     user_id = str(update.message.from_user.id)
     logging.info(f"Processing OpenAI response for user with ID: {user_id}")
 
@@ -231,6 +261,10 @@ async def process_openai_response(update, response):
             await batch_edit_messages(reply_message, messages_to_edit)
             messages_to_edit = []  # 清空消息列表
 
+            # 将关联的text信息与link_id保存到数据库
+            save_summary_to_database(link_id, summary)
+            logging.info(f"Summary saved to database for link_id: {link_id}")
+
             # 异步等待一小段时间，以便 Telegram 服务器能够处理编辑请求
             await asyncio.sleep(0.01)
 
@@ -248,7 +282,7 @@ async def batch_edit_messages(reply_message, messages):
 
 
 # 将文章和评论传递给 OpenAI API 以生成摘要
-async def get_and_reply_summary_text(update: Update, text: str):
+async def get_and_reply_summary_text(update: Update, text: str, link_id: str):
     user_id = str(update.message.from_user.id)
     logging.info(f"Generating summary for user with ID: {user_id}")
 
@@ -264,7 +298,7 @@ async def get_and_reply_summary_text(update: Update, text: str):
     total_text = "".join([message["content"] for message in messages])
 
     response = await send_messages_to_openai(messages)
-    await process_openai_response(update, response)
+    await process_openai_response(update, response, link_id)
 
 
 # 获取流截止值
@@ -307,12 +341,27 @@ def truncate_text(text, max_length):
         return truncated_text
 
 
+# 在数据库中查找摘要文本
+def fetch_summary_from_database(link_id: str) -> str:
+    cursor.execute('SELECT summary_text FROM summaries WHERE link_id = ?', (link_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+# 保存摘要文本到数据库
+def save_summary_to_database(link_id: str, summary_text: str) -> None:
+    cursor.execute('INSERT OR REPLACE INTO summaries (link_id, summary_text) VALUES (?, ?)', (link_id, summary_text))
+    conn.commit()
+
+
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()  # 使用从 .env 文件中获取的 Telegram Bot Token
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     app.run_polling()
     logging.info("Bot application started")
+
+    # 关闭数据库连接
+    conn.close()
 
 if __name__ == "__main__":
     main()
