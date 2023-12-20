@@ -26,6 +26,9 @@ import retrying
 from openai.error import ServiceUnavailableError
 import sqlite3
 
+# Here we add URL function to parse the URL;
+from urllib.parse import urlparse
+
 # 从 .env 文件加载配置
 load_dotenv()
 
@@ -110,29 +113,25 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logging.info(f"Error! Your ID: {user_id} are not allowed to use this bot.")
             return
 
-    # 如果消息来自群聊，则检查是否包含目标链接
-    if update.message.chat.type == 'group':
-        if re.search(r"Link:\s+(https://readhacker.news\S+)", text) is None:
-            logging.info(f"Message doesn’t contain Hacker News link")
-            return
+    # Get the URL from text;
+    linkUrl = re.findall(r'(https?://[^\s]+)', text)[0]
+    # Get domain name from URL;
+    linkDomain = urlparse(linkUrl).netloc
+    # If the domain name is not `readhacker.news`, return;
+    if linkDomain != 'readhacker.news':
+        logging.info(f"Message doesn’t contain Hacker News link!")
+        return
+    
+    # Get the link ID from URL;
+    linkId = linkUrl.split('/')[-1]
+    # Create the links for article and comments;
+    linkArticle = f"https://readhacker.news/s/{linkId}"
+    linkComments = f"https://readhacker.news/c/{linkId}"
 
-    # 提取链接
-    links_match = re.search(r"Link:\s+(https://readhacker.news\S+)", text)
-    comments_match = re.search(r"Comments:\s+(https://readhacker.news\S+)", text)
-
-    links = links_match.group(1) if links_match else None
-    comments = comments_match.group(1) if comments_match else None
-    logging.info(f"Link: {links}")
-    logging.info(f"Comments: {comments}")
-
-    # 将链接传递给处理链接函数
-    if links and comments:
-        asyncio.create_task(handle_links(update, links, comments))
-    else:
-        logging.info(f"Link or comments not found in the message")
-
-
-
+    # Return the article and comments links;
+    logging.info(f"Article link: {linkArticle}")
+    logging.info(f"Comments link: {linkComments}")
+    asyncio.create_task(handle_links(update, linkArticle, linkComments))
 
 # 处理链接网页内容
 async def handle_links(update: Update, links: str, comments: str) -> None:
